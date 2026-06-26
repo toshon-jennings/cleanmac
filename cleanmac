@@ -1,0 +1,77 @@
+#!/bin/bash
+# cleanmac - A script to clean developer caches on macOS
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}=== Starting macOS Developer Cache Cleanup ===${NC}\n"
+
+# Helper function to get directory size
+get_size() {
+    local path="$1"
+    if [ -d "$path" ]; then
+        du -sh "$path" 2>/dev/null | cut -f1
+    else
+        echo "0B"
+    fi
+}
+
+# 1. Clean uv cache
+if command -v uv &> /dev/null; then
+    size=$(get_size "$HOME/.cache/uv")
+    echo -e "${GREEN}[uv]${NC} Cleaning uv cache (was $size)..."
+    uv cache clean --force &>/dev/null
+fi
+
+# 2. Clean pip cache
+pip_cache="$HOME/Library/Caches/pip"
+if [ -d "$pip_cache" ]; then
+    size=$(get_size "$pip_cache")
+    echo -e "${GREEN}[pip]${NC} Cleaning pip cache (was $size)..."
+    rm -rf "$pip_cache"/*
+fi
+
+# 3. Clean npm cache
+if command -v npm &> /dev/null; then
+    size=$(get_size "$HOME/.npm")
+    echo -e "${GREEN}[npm]${NC} Cleaning npm cache (was $size)..."
+    npm cache clean --force &>/dev/null
+fi
+
+# 4. Clean bun cache
+if command -v bun &> /dev/null; then
+    size=$(get_size "$HOME/.bun")
+    echo -e "${GREEN}[bun]${NC} Cleaning bun cache (was $size)..."
+    bun pm cache clean &>/dev/null
+fi
+
+# 5. Clean Homebrew cache
+if command -v brew &> /dev/null; then
+    echo -e "${GREEN}[Homebrew]${NC} Running brew cleanup..."
+    brew cleanup -s &>/dev/null
+fi
+
+# 6. Clean Xcode DerivedData
+derived_data="$HOME/Library/Developer/Xcode/DerivedData"
+if [ -d "$derived_data" ]; then
+    size=$(get_size "$derived_data")
+    echo -e "${GREEN}[Xcode]${NC} Cleaning Xcode DerivedData (was $size)..."
+    rm -rf "$derived_data"/*
+fi
+
+# 7. Clean Cargo global cache
+if command -v cargo &> /dev/null && cargo cache --version &>/dev/null; then
+    echo -e "${GREEN}[Cargo]${NC} Running cargo cache autoclean..."
+    cargo cache -a &>/dev/null
+fi
+
+# 8. Clean Docker (only if running)
+if command -v docker &> /dev/null && docker info &> /dev/null; then
+    echo -e "${GREEN}[Docker]${NC} Pruning unused Docker resources (images, containers, volumes)..."
+    docker system prune -f --volumes &>/dev/null
+fi
+
+echo -e "\n${BLUE}=== Cleanup Complete! ===${NC}"
