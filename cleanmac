@@ -1,77 +1,306 @@
 #!/bin/bash
 # cleanmac - A script to clean developer caches on macOS
 
+set -euo pipefail
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}=== Starting macOS Developer Cache Cleanup ===${NC}\n"
+# --- Flags ---
+DRY_RUN=false
+SILENT=false
+ONLY=""
+SKIP=""
 
-# Helper function to get directory size
+# --- Parse arguments ---
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run|-n)
+            DRY_RUN=true
+            shift
+            ;;
+        --silent|-y)
+            SILENT=true
+            shift
+            ;;
+        --only)
+            ONLY="$2"
+            shift 2
+            ;;
+        --skip)
+            SKIP="$2"
+            shift 2
+            ;;
+        --help|-h)
+            echo "cleanmac — macOS developer cache cleanup"
+            echo ""
+            echo "Usage: cleanmac [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --dry-run, -n     Show what would be deleted without deleting"
+            echo "  --silent, -y      Suppress verbose output (cron-friendly)"
+            echo "  --only <targets>  Comma-separated list of targets to clean (e.g., docker,npm)"
+            echo "  --skip <targets>  Comma-separated list of targets to skip (e.g., xcode,cargo)"
+            echo "  --help, -h        Show this help message"
+            echo ""
+            echo "Available targets: uv, pip, npm, bun, brew, xcode, cargo, docker"
+            echo ""
+            echo "Environment variables:"
+            echo "  CARGO_HOME         (default: ~/.cargo)"
+            echo "  NPM_CONFIG_CACHE   (default: ~/.npm)"
+            echo "  DOCKER_CONFIG      (default: ~/.docker)"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Unknown option: $1${NC}"
+            echo "Run 'cleanmac --help' for usage."
+            exit 1
+            ;;
+    esac
+done
+
+# --- Helper: check if a target is enabled ---
+# Reads global $ONLY and $SKIP
+is_enabled() {
+    local target="$1"
+
+    # If --skip is set and target is in the skip list → disabled
+    if [[ -n "$SKIP" ]]; then
+        if echo ",$SKIP," | grep -qi ",$target,"; then
+            return 1
+        fi
+    fi
+
+    # If --only is set and target is NOT in the only list → disabled
+    if [[ -n "$ONLY" ]]; then
+        if ! echo ",$ONLY," | grep -qi ",$target,"; then
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# --- Helper: get directory size ---
 get_size() {
     local path="$1"
-    if [ -d "$path" ]; then
+    if [[ -d "$path" ]]; then
         du -sh "$path" 2>/dev/null | cut -f1
     else
         echo "0B"
     fi
 }
 
-# 1. Clean uv cache
-if command -v uv &> /dev/null; then
-    size=$(get_size "$HOME/.cache/uv")
-    echo -e "${GREEN}[uv]${NC} Cleaning uv cache (was $size)..."
-    uv cache clean --force &>/dev/null
+# --- Helper: get size in bytes (for summing) ---
+get_size_bytes() {
+    local path="$1"
+    if [[ -d "$path" ]]; then
+        du -sk "$path" 2>/dev/null | cut -f1
+    else
+        echo "0"
+    fi
+}
+
+# --- Helper: format kilobytes to human-readable ---
+humanize() {
+    local kb=$1
+    if [[ $kb -ge 1048576 ]]; then
+        echo "$(awk -v k="$kb" 'BEGIN {printf "%.1f", k/1048576}') GB"
+    elif [[ $kb -ge 1024 ]]; then
+        echo "$(awk -v k="$kb" 'BEGIN {printf "%.1f", k/1024}') MB"
+    else
+        echo "${kb} KB"
+    fi
+}
+
+# --- Print header ---
+if [[ "$SILENT" == false ]]; then
+    echo -e "${BLUE}=== Starting macOS Developer Cache Cleanup ===${NC}"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo -e "${YELLOW}--- DRY RUN (no files will be deleted) ---${NC}"
+    fi
+    echo ""
 fi
 
-# 2. Clean pip cache
-pip_cache="$HOME/Library/Caches/pip"
-if [ -d "$pip_cache" ]; then
-    size=$(get_size "$pip_cache")
-    echo -e "${GREEN}[pip]${NC} Cleaning pip cache (was $size)..."
-    rm -rf "$pip_cache"/*
+# --- Accumulators for savings summary ---
+TOTAL_SAVED_KB=0
+declare -a SAVINGS_LINES=()
+
+# --- 1. Clean uv cache ---
+if is_enabled "uv"; then
+    if command -v uv &> /dev/null; then
+        cache_path="$HOME/.cache/uv"
+        size_bytes=$(get_size_bytes "$cache_path")
+        size_human=$(get_size "$cache_path")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("uv        $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[uv]${NC} Cleaning uv cache (was $size_human)..."
+            fi
+            uv cache clean --force &>/dev/null
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
 fi
 
-# 3. Clean npm cache
-if command -v npm &> /dev/null; then
-    size=$(get_size "$HOME/.npm")
-    echo -e "${GREEN}[npm]${NC} Cleaning npm cache (was $size)..."
-    npm cache clean --force &>/dev/null
+# --- 2. Clean pip cache ---
+if is_enabled "pip"; then
+    pip_cache="$HOME/Library/Caches/pip"
+    if [[ -d "$pip_cache" ]]; then
+        size_bytes=$(get_size_bytes "$pip_cache")
+        size_human=$(get_size "$pip_cache")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("pip       $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[pip]${NC} Cleaning pip cache (was $size_human)..."
+            fi
+            rm -rf "$pip_cache"/*
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
 fi
 
-# 4. Clean bun cache
-if command -v bun &> /dev/null; then
-    size=$(get_size "$HOME/.bun")
-    echo -e "${GREEN}[bun]${NC} Cleaning bun cache (was $size)..."
-    bun pm cache clean &>/dev/null
+# --- 3. Clean npm cache ---
+if is_enabled "npm"; then
+    if command -v npm &> /dev/null; then
+        npm_cache="${NPM_CONFIG_CACHE:-$HOME/.npm}"
+        size_bytes=$(get_size_bytes "$npm_cache")
+        size_human=$(get_size "$npm_cache")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("npm       $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[npm]${NC} Cleaning npm cache (was $size_human)..."
+            fi
+            npm cache clean --force &>/dev/null
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
 fi
 
-# 5. Clean Homebrew cache
-if command -v brew &> /dev/null; then
-    echo -e "${GREEN}[Homebrew]${NC} Running brew cleanup..."
-    brew cleanup -s &>/dev/null
+# --- 4. Clean bun cache ---
+if is_enabled "bun"; then
+    if command -v bun &> /dev/null; then
+        bun_cache="$HOME/.bun"
+        size_bytes=$(get_size_bytes "$bun_cache")
+        size_human=$(get_size "$bun_cache")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("bun       $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[bun]${NC} Cleaning bun cache (was $size_human)..."
+            fi
+            bun pm cache clean &>/dev/null
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
 fi
 
-# 6. Clean Xcode DerivedData
-derived_data="$HOME/Library/Developer/Xcode/DerivedData"
-if [ -d "$derived_data" ]; then
-    size=$(get_size "$derived_data")
-    echo -e "${GREEN}[Xcode]${NC} Cleaning Xcode DerivedData (was $size)..."
-    rm -rf "$derived_data"/*
+# --- 5. Clean Homebrew cache ---
+if is_enabled "brew"; then
+    if command -v brew &> /dev/null; then
+        # Brew doesn't have a simple "size before" — we estimate from cache dir
+        brew_cache="$(brew --cache 2>/dev/null || echo "$HOME/Library/Caches/Homebrew")"
+        size_bytes=$(get_size_bytes "$brew_cache")
+        size_human=$(get_size "$brew_cache")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("brew      $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[brew]${NC} Running brew cleanup..."
+            fi
+            brew cleanup -s &>/dev/null
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
 fi
 
-# 7. Clean Cargo global cache
-if command -v cargo &> /dev/null && cargo cache --version &>/dev/null; then
-    echo -e "${GREEN}[Cargo]${NC} Running cargo cache autoclean..."
-    cargo cache -a &>/dev/null
+# --- 6. Clean Xcode DerivedData ---
+if is_enabled "xcode"; then
+    derived_data="$HOME/Library/Developer/Xcode/DerivedData"
+    if [[ -d "$derived_data" ]]; then
+        size_bytes=$(get_size_bytes "$derived_data")
+        size_human=$(get_size "$derived_data")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("xcode     $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[xcode]${NC} Cleaning Xcode DerivedData (was $size_human)..."
+            fi
+            rm -rf "$derived_data"/*
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
 fi
 
-# 8. Clean Docker (only if running)
-if command -v docker &> /dev/null && docker info &> /dev/null; then
-    echo -e "${GREEN}[Docker]${NC} Pruning unused Docker resources (images, containers, volumes)..."
-    docker system prune -f --volumes &>/dev/null
+# --- 7. Clean Cargo global cache ---
+if is_enabled "cargo"; then
+    if command -v cargo &> /dev/null; then
+        cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+        size_bytes=$(get_size_bytes "$cargo_home")
+        size_human=$(get_size "$cargo_home")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("cargo     $size_human (dry run)")
+        else
+            if cargo cache --version &>/dev/null; then
+                if [[ "$SILENT" == false ]]; then
+                    echo -e "${GREEN}[cargo]${NC} Running cargo cache autoclean..."
+                fi
+                cargo cache -a &>/dev/null
+            else
+                if [[ "$SILENT" == false ]]; then
+                    echo -e "${YELLOW}[cargo]${NC} Skipping (cargo-cache not installed)"
+                fi
+            fi
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
 fi
 
-echo -e "\n${BLUE}=== Cleanup Complete! ===${NC}"
+# --- 8. Clean Docker ---
+if is_enabled "docker"; then
+    if command -v docker &> /dev/null && docker info &> /dev/null; then
+        # Docker doesn't expose a simple "size" — we estimate from build cache
+        docker_buildx="$HOME/.docker/buildx"
+        size_bytes=$(get_size_bytes "$docker_buildx")
+        size_human=$(get_size "$docker_buildx")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("docker    $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[docker]${NC} Pruning unused Docker resources..."
+            fi
+            docker system prune -f --volumes &>/dev/null
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+fi
+
+# --- Print savings summary ---
+if [[ "$SILENT" == false ]]; then
+    echo ""
+    if [[ ${#SAVINGS_LINES[@]} -gt 0 ]]; then
+        echo -e "${BLUE}--- Space Savings Breakdown ---${NC}"
+        for line in "${SAVINGS_LINES[@]}"; do
+            echo "  $line"
+        done
+        echo ""
+    fi
+    echo -e "${BLUE}Total space reclaimed: $(humanize $TOTAL_SAVED_KB)${NC}"
+    echo ""
+    echo -e "${BLUE}=== Cleanup Complete! ===${NC}"
+fi

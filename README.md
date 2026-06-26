@@ -32,10 +32,56 @@ chmod +x /usr/local/bin/cleanmac
 ## Usage
 
 ```bash
-cleanmac
+cleanmac                  # Clean everything
+cleanmac --dry-run        # Preview what would be deleted (no changes)
+cleanmac --only npm,docker  # Clean only specific targets
+cleanmac --skip xcode     # Clean everything except Xcode
+cleanmac --silent         # Suppress output (for cron/scripts)
+cleanmac --help           # Show all options
 ```
 
-That's it. No flags, no config. Run it whenever your disk needs breathing room.
+## Options
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run`, `-n` | Show what would be deleted without deleting anything |
+| `--silent`, `-y` | Suppress verbose output (cron-friendly) |
+| `--only <targets>` | Comma-separated list of targets to clean (e.g., `docker,npm`) |
+| `--skip <targets>` | Comma-separated list of targets to skip (e.g., `xcode,cargo`) |
+| `--help`, `-h` | Show help message |
+
+Available targets: `uv`, `pip`, `npm`, `bun`, `brew`, `xcode`, `cargo`, `docker`
+
+## Space Savings Summary
+
+After each run, cleanmac prints a breakdown of space reclaimed per target and a total:
+
+```
+--- Space Savings Breakdown ---
+  uv        882M
+  npm       830M
+  brew      1.4G
+
+Total space reclaimed: 3.1 GB
+```
+
+## Custom Paths
+
+cleanmac respects standard environment variables for custom tool locations:
+
+| Variable | Default | Used by |
+|----------|---------|---------|
+| `CARGO_HOME` | `~/.cargo` | Cargo |
+| `NPM_CONFIG_CACHE` | `~/.npm` | npm |
+
+## Automation
+
+Drop it in a cron job or launch agent with `--silent`:
+
+```bash
+# Weekly cleanup at 2 AM
+0 2 * * 0 /usr/local/bin/cleanmac --silent
+```
 
 ## Requirements
 
