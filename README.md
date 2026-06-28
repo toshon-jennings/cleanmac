@@ -4,6 +4,7 @@ A simple, zero-dependency bash script to clean up developer caches, logs, and bu
 
 ## What it cleans
 
+### Standard mode (default)
 - **uv** — Python package manager cache
 - **pip** — Python pip cache
 - **npm** — Node.js package manager cache
@@ -12,6 +13,22 @@ A simple, zero-dependency bash script to clean up developer caches, logs, and bu
 - **Xcode** — DerivedData
 - **Cargo** — Rust global cache
 - **Docker** — Unused images, containers, volumes (only if Docker is running)
+
+### Aggressive mode (`--aggressive`)
+- **apps** — Application caches (`~/Library/Caches/*`) and safe cache subdirectories in `~/Library/Application Support/*` (Cache, Code Cache, GPUCache, Crashpad, CachedData, WebStorage, etc.)
+- **logs** — Log files in `~/Library/Logs/*` and Crashpad folders
+- **orphaned** — Data for uninstalled apps (Docker Desktop leftovers, app data without matching installed app)
+- **downloads** — DMG/ZIP/PKG installers older than 30 days in Downloads
+- **code-signing** — Orphaned code signing clone directories
+
+## Safety features
+
+- **Dry run by default awareness** — Use `--dry-run` to preview before deleting
+- **Browser data protection** — Never touches Chrome, Firefox, or Brave profile data (bookmarks, passwords, history)
+- **System file protection** — Skips `com.apple.*`, `CloudKit`, and other system caches
+- **Installed app protection** — Orphaned data detection skips reverse-domain named folders (com.*, org.*, etc.) and verifies against `/Applications/`
+- **Confirmation prompts** — Aggressive mode asks before deleting orphaned app data
+- **Graceful failures** — Permission-denied files are skipped, not fatal
 
 ## Install
 
@@ -32,12 +49,13 @@ chmod +x /usr/local/bin/cleanmac
 ## Usage
 
 ```bash
-cleanmac                  # Clean everything
-cleanmac --dry-run        # Preview what would be deleted (no changes)
+cleanmac                    # Clean developer caches (safe)
+cleanmac --aggressive       # Deep clean (app caches, logs, orphaned data)
+cleanmac --dry-run --aggressive  # Preview what aggressive mode would delete
 cleanmac --only npm,docker  # Clean only specific targets
-cleanmac --skip xcode     # Clean everything except Xcode
-cleanmac --silent         # Suppress output (for cron/scripts)
-cleanmac --help           # Show all options
+cleanmac --skip xcode       # Clean everything except Xcode
+cleanmac --silent           # Suppress output (for cron/scripts)
+cleanmac --help             # Show all options
 ```
 
 ## Options
@@ -48,9 +66,12 @@ cleanmac --help           # Show all options
 | `--silent`, `-y` | Suppress verbose output (cron-friendly) |
 | `--only <targets>` | Comma-separated list of targets to clean (e.g., `docker,npm`) |
 | `--skip <targets>` | Comma-separated list of targets to skip (e.g., `xcode,cargo`) |
+| `--aggressive`, `-a` | Include app caches, logs, orphaned app data, old installers, and code signing clones |
 | `--help`, `-h` | Show help message |
 
-Available targets: `uv`, `pip`, `npm`, `bun`, `brew`, `xcode`, `cargo`, `docker`
+Available targets (standard): `uv`, `pip`, `npm`, `bun`, `brew`, `xcode`, `cargo`, `docker`
+
+Available targets (aggressive): `apps`, `logs`, `orphaned`, `downloads`, `code-signing`
 
 ## Space Savings Summary
 
@@ -61,8 +82,11 @@ After each run, cleanmac prints a breakdown of space reclaimed per target and a 
   uv        882M
   npm       830M
   brew      1.4G
+  apps      2.3G
+  logs      45M
+  orphaned  120M
 
-Total space reclaimed: 3.1 GB
+Total space reclaimed: 5.1 GB
 ```
 
 ## Custom Paths
@@ -81,6 +105,9 @@ Drop it in a cron job or launch agent with `--silent`:
 ```bash
 # Weekly cleanup at 2 AM
 0 2 * * 0 /usr/local/bin/cleanmac --silent
+
+# Monthly deep clean
+0 2 1 * * /usr/local/bin/cleanmac --silent --aggressive
 ```
 
 ## Requirements

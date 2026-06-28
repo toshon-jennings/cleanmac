@@ -1,5 +1,5 @@
 #!/bin/bash
-# cleanmac - A script to clean developer caches on macOS
+# cleanmac v1.1.0 - A script to clean developer caches and system junk on macOS
 
 set -euo pipefail
 
@@ -15,6 +15,7 @@ DRY_RUN=false
 SILENT=false
 ONLY=""
 SKIP=""
+AGGRESSIVE=false
 
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
@@ -35,10 +36,23 @@ while [[ $# -gt 0 ]]; do
             SKIP="$2"
             shift 2
             ;;
+        --aggressive|-a)
+            AGGRESSIVE=true
+            shift
+            ;;
+        --standard|-s)
+            AGGRESSIVE=false
+            shift
+            ;;
         --help|-h)
-            echo "cleanmac — macOS developer cache cleanup"
+            echo "cleanmac v1.1.0 — macOS developer cache cleanup"
             echo ""
             echo "Usage: cleanmac [OPTIONS]"
+            echo ""
+            echo "Modes:"
+            echo "  (default)          Standard — developer caches only (uv, pip, npm, bun, brew, xcode, cargo, docker)"
+            echo "  --aggressive, -a   Deep clean — app caches, logs, orphaned data, old installers, code signing clones"
+            echo "  --standard, -s     Explicit standard mode (same as default)"
             echo ""
             echo "Options:"
             echo "  --dry-run, -n     Show what would be deleted without deleting"
@@ -47,7 +61,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip <targets>  Comma-separated list of targets to skip (e.g., xcode,cargo)"
             echo "  --help, -h        Show this help message"
             echo ""
-            echo "Available targets: uv, pip, npm, bun, brew, xcode, cargo, docker"
+            echo "Standard targets: uv, pip, npm, bun, brew, xcode, cargo, docker"
+            echo "Aggressive targets: apps, logs, orphaned, downloads, code-signing"
             echo ""
             echo "Environment variables:"
             echo "  CARGO_HOME         (default: ~/.cargo)"
@@ -64,18 +79,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Helper: check if a target is enabled ---
-# Reads global $ONLY and $SKIP
 is_enabled() {
     local target="$1"
 
-    # If --skip is set and target is in the skip list → disabled
     if [[ -n "$SKIP" ]]; then
         if echo ",$SKIP," | grep -qi ",$target,"; then
             return 1
         fi
     fi
 
-    # If --only is set and target is NOT in the only list → disabled
     if [[ -n "$ONLY" ]]; then
         if ! echo ",$ONLY," | grep -qi ",$target,"; then
             return 1
@@ -89,7 +101,7 @@ is_enabled() {
 get_size() {
     local path="$1"
     if [[ -d "$path" ]]; then
-        du -sh "$path" 2>/dev/null | cut -f1
+        du -sh "$path" 2>/dev/null | cut -f1 || echo "0B"
     else
         echo "0B"
     fi
@@ -99,7 +111,7 @@ get_size() {
 get_size_bytes() {
     local path="$1"
     if [[ -d "$path" ]]; then
-        du -sk "$path" 2>/dev/null | cut -f1
+        du -sk "$path" 2>/dev/null | cut -f1 || echo "0"
     else
         echo "0"
     fi
@@ -117,11 +129,46 @@ humanize() {
     fi
 }
 
+# --- Helper: safely remove a path ---
+safe_rm() {
+    local path="$1"
+    local description="$2"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        echo -e "  ${YELLOW}[would delete]${NC} $description"
+    else
+        rm -rf "$path" 2>/dev/null && \
+            echo -e "  ${GREEN}[deleted]${NC} $description" || \
+            echo -e "  ${YELLOW}[skipped]${NC} $description (permission denied)"
+    fi
+}
+
+# --- Helper: check if an app is installed ---
+app_installed() {
+    local app_name="$1"
+    ls "/Applications/${app_name}.app" &>/dev/null || \
+    ls "$HOME/Applications/${app_name}.app" &>/dev/null
+}
+
+# --- Helper: confirm before destructive action ---
+confirm() {
+    local message="$1"
+    if [[ "$SILENT" == true ]]; then
+        return 0
+    fi
+    echo -e "${YELLOW}$message [y/N]${NC}"
+    read -r response
+    [[ "$response" =~ ^[Yy]$ ]]
+}
+
 # --- Print header ---
 if [[ "$SILENT" == false ]]; then
     echo -e "${BLUE}=== Starting macOS Developer Cache Cleanup ===${NC}"
     if [[ "$DRY_RUN" == true ]]; then
         echo -e "${YELLOW}--- DRY RUN (no files will be deleted) ---${NC}"
+    fi
+    if [[ "$AGGRESSIVE" == true ]]; then
+        echo -e "${YELLOW}--- AGGRESSIVE MODE (cleaning app caches and logs) ---${NC}"
     fi
     echo ""
 fi
@@ -209,7 +256,6 @@ fi
 # --- 5. Clean Homebrew cache ---
 if is_enabled "brew"; then
     if command -v brew &> /dev/null; then
-        # Brew doesn't have a simple "size before" — we estimate from cache dir
         brew_cache="$(brew --cache 2>/dev/null || echo "$HOME/Library/Caches/Homebrew")"
         size_bytes=$(get_size_bytes "$brew_cache")
         size_human=$(get_size "$brew_cache")
@@ -273,7 +319,6 @@ fi
 # --- 8. Clean Docker ---
 if is_enabled "docker"; then
     if command -v docker &> /dev/null && docker info &> /dev/null; then
-        # Docker doesn't expose a simple "size" — we estimate from build cache
         docker_buildx="$HOME/.docker/buildx"
         size_bytes=$(get_size_bytes "$docker_buildx")
         size_human=$(get_size "$docker_buildx")
@@ -288,6 +333,229 @@ if is_enabled "docker"; then
         fi
         TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
     fi
+fi
+
+# --- AGGRESSIVE MODE TARGETS ---
+
+# --- 9. Clean app caches ---
+if [[ "$AGGRESSIVE" == true ]] && is_enabled "apps"; then
+    if [[ "$SILENT" == false ]]; then
+        echo -e "${GREEN}[apps]${NC} Cleaning application caches..."
+    fi
+
+    # Known safe cache subdirectories (never delete the whole App Support folder)
+    CACHE_SUBDIRS=("Cache" "Code Cache" "GPUCache" "Crashpad" "CachedData" "CachedExtensionVSIXs" "WebStorage" "CachedProfilesData" "DawnWebGPUCache" "DawnGraphiteCache" "logs" "ShipIt")
+
+    for app_dir in "$HOME/Library/Application Support"/*/; do
+        app_name=$(basename "$app_dir")
+
+        # Skip Chrome profiles — contains passwords, bookmarks, history
+        if [[ "$app_name" == "Google" ]] || [[ "$app_name" == "GoogleChrome" ]]; then
+            continue
+        fi
+
+        # Skip browsers with sensitive profile data
+        if [[ "$app_name" == "Mozilla" ]] || [[ "$app_name" == "BraveSoftware" ]]; then
+            continue
+        fi
+
+        for subdir in "${CACHE_SUBDIRS[@]}"; do
+            target="$app_dir$subdir"
+            if [[ -d "$target" ]]; then
+                size_bytes=$(get_size_bytes "$target")
+                size_human=$(get_size "$target")
+
+                if [[ "$DRY_RUN" == true ]]; then
+                    SAVINGS_LINES+=("apps:$app_name/$subdir  $size_human (dry run)")
+                else
+                    safe_rm "$target" "$app_name/$subdir ($size_human)"
+                fi
+                TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+            fi
+        done
+    done
+
+    # Clean ~/Library/Caches/* (system-designated volatile folder)
+    for cache_dir in "$HOME/Library/Caches"/*/; do
+        [[ -d "$cache_dir" ]] || continue
+        app_name=$(basename "$cache_dir")
+
+        # Skip Chrome cache
+        if [[ "$app_name" == "Google" ]]; then
+            continue
+        fi
+
+        # Skip system caches (com.apple.*, CloudKit, mds, etc.)
+        if [[ "$app_name" == com.apple.* ]] || [[ "$app_name" == "CloudKit" ]] || [[ "$app_name" == "mds" ]] || [[ "$app_name" == "mds_stores" ]]; then
+            continue
+        fi
+
+        size_bytes=$(get_size_bytes "$cache_dir")
+        size_human=$(get_size "$cache_dir")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("cache:$app_name  $size_human (dry run)")
+        else
+            safe_rm "$cache_dir" "Caches/$app_name ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    done
+fi
+
+# --- 10. Clean log files ---
+if [[ "$AGGRESSIVE" == true ]] && is_enabled "logs"; then
+    if [[ "$SILENT" == false ]]; then
+        echo -e "${GREEN}[logs]${NC} Cleaning log files..."
+    fi
+
+    # ~/Library/Logs
+    if [[ -d "$HOME/Library/Logs" ]]; then
+        for log_dir in "$HOME/Library/Logs"/*/; do
+            size_bytes=$(get_size_bytes "$log_dir")
+            size_human=$(get_size "$log_dir")
+
+            if [[ "$DRY_RUN" == true ]]; then
+                SAVINGS_LINES+=("logs:$(basename "$log_dir")  $size_human (dry run)")
+            else
+                safe_rm "$log_dir" "Logs/$(basename "$log_dir") ($size_human)"
+            fi
+            TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+        done
+    fi
+
+    # Crashpad folders in App Support
+    while IFS= read -r crashpad; do
+        [[ -z "$crashpad" ]] && continue
+        size_bytes=$(get_size_bytes "$crashpad")
+        size_human=$(get_size "$crashpad")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("crashpad  $size_human (dry run)")
+        else
+            safe_rm "$crashpad" "Crashpad ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    done < <(find "$HOME/Library/Application Support" -maxdepth 2 -name "Crashpad" -type d 2>/dev/null || true)
+fi
+
+# --- 11. Clean orphaned app data ---
+if [[ "$AGGRESSIVE" == true ]] && is_enabled "orphaned"; then
+    if [[ "$SILENT" == false ]]; then
+        echo -e "${GREEN}[orphaned]${NC} Checking for orphaned app data..."
+    fi
+
+    # Docker Desktop leftovers (only if Docker Desktop app is not installed)
+    if ! app_installed "Docker"; then
+        docker_leftover="$HOME/Library/Containers/com.docker.docker"
+        if [[ -d "$docker_leftover" ]]; then
+            size_bytes=$(get_size_bytes "$docker_leftover")
+            size_human=$(get_size "$docker_leftover")
+
+            if [[ "$DRY_RUN" == true ]]; then
+                SAVINGS_LINES+=("orphaned:docker-desktop  $size_human (dry run)")
+            else
+                safe_rm "$docker_leftover" "Docker Desktop leftovers ($size_human)"
+            fi
+            TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+        fi
+
+        docker_config="$HOME/.docker"
+        if [[ -d "$docker_config" ]]; then
+            size_bytes=$(get_size_bytes "$docker_config")
+            size_human=$(get_size "$docker_config")
+
+            if [[ "$DRY_RUN" == true ]]; then
+                SAVINGS_LINES+=("orphaned:.docker  $size_human (dry run)")
+            else
+                safe_rm "$docker_config" "Docker config ($size_human)"
+            fi
+            TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+        fi
+    fi
+
+    # Check for App Support folders where the app is no longer installed
+    for app_dir in "$HOME/Library/Application Support"/*/; do
+        [[ -d "$app_dir" ]] || continue
+        app_name=$(basename "$app_dir")
+
+        # Skip known multi-app suites and system folders
+        if [[ "$app_name" == "Google" ]] || [[ "$app_name" == "Mozilla" ]] || [[ "$app_name" == "com.apple" ]]; then
+            continue
+        fi
+
+        # Skip reverse-domain named folders (com.*, org.*, etc.) — these are usually
+        # subdirectories of installed apps, not standalone apps
+        if [[ "$app_name" == com.* ]] || [[ "$app_name" == org.* ]] || [[ "$app_name" == net.* ]] || [[ "$app_name" == io.* ]]; then
+            continue
+        fi
+
+        # Check if any matching app exists (try exact match and partial match)
+        if ! ls "/Applications/${app_name}.app" &>/dev/null && \
+           ! ls "$HOME/Applications/${app_name}.app" &>/dev/null && \
+           ! find /Applications ~/Applications -maxdepth 1 -name "*${app_name}*" -name "*.app" -print -quit 2>/dev/null | grep -q .; then
+            size_bytes=$(get_size_bytes "$app_dir")
+            size_human=$(get_size "$app_dir")
+
+            # Only flag if > 100MB to avoid noise
+            if [[ $size_bytes -gt 102400 ]]; then
+                if [[ "$DRY_RUN" == true ]]; then
+                    SAVINGS_LINES+=("orphaned:$app_name  $size_human (dry run)")
+                else
+                    if confirm "App '$app_name' appears uninstalled. Delete its data ($size_human)?"; then
+                        safe_rm "$app_dir" "Orphaned: $app_name ($size_human)"
+                        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+                    fi
+                fi
+            fi
+        fi
+    done
+fi
+
+# --- 12. Clean old Downloads ---
+if [[ "$AGGRESSIVE" == true ]] && is_enabled "downloads"; then
+    if [[ "$SILENT" == false ]]; then
+        echo -e "${GREEN}[downloads]${NC} Checking for old installers in Downloads..."
+    fi
+
+    # Find DMG/ZIP files older than 30 days in Downloads
+    while IFS= read -r installer; do
+        [[ -z "$installer" ]] && continue
+        # Skip if file is newer than 30 days
+        if [[ -n $(find "$installer" -mtime -30 2>/dev/null) ]]; then
+            continue
+        fi
+
+        size_bytes=$(du -sk "$installer" 2>/dev/null | cut -f1)
+        size_human=$(du -sh "$installer" 2>/dev/null | cut -f1)
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("downloads:$(basename "$installer")  $size_human (dry run)")
+        else
+            safe_rm "$installer" "Old installer: $(basename "$installer") ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    done < <(find "$HOME/Downloads" -maxdepth 2 \( -name "*.dmg" -o -name "*.zip" -o -name "*.pkg" \) -mtime +30 2>/dev/null || true)
+fi
+
+# --- 13. Clean code signing clones ---
+if [[ "$AGGRESSIVE" == true ]] && is_enabled "code-signing"; then
+    if [[ "$SILENT" == false ]]; then
+        echo -e "${GREEN}[code-signing]${NC} Cleaning orphaned code signing clones..."
+    fi
+
+    # Find code_sign_clone directories in temp folders
+    while IFS= read -r clone; do
+        [[ -z "$clone" ]] && continue
+        size_bytes=$(get_size_bytes "$clone")
+        size_human=$(get_size "$clone")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("code-signing  $size_human (dry run)")
+        else
+            safe_rm "$clone" "Code signing clone ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    done < <(find /private/var/folders -maxdepth 4 -type d -name "*.code_sign_clone" 2>/dev/null || true)
 fi
 
 # --- Print savings summary ---
