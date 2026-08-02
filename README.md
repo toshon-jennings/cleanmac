@@ -1,4 +1,4 @@
-# cleanmac
+# Cleanmac
 
 A simple, zero-dependency bash script to clean up developer caches, logs, and build artifacts on macOS.
 
