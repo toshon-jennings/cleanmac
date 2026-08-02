@@ -1,5 +1,5 @@
 #!/bin/bash
-# cleanmac v1.1.0 - A script to clean developer caches and system junk on macOS
+# cleanmac v1.2.0 - A script to clean developer caches and system junk on macOS
 
 set -euo pipefail
 
@@ -16,6 +16,8 @@ SILENT=false
 ONLY=""
 SKIP=""
 AGGRESSIVE=false
+CACHE=false
+AI=false
 
 # --- Parse arguments ---
 while [[ $# -gt 0 ]]; do
@@ -40,18 +42,28 @@ while [[ $# -gt 0 ]]; do
             AGGRESSIVE=true
             shift
             ;;
+        --cache|-c)
+            CACHE=true
+            shift
+            ;;
+        --ai)
+            AI=true
+            shift
+            ;;
         --standard|-s)
             AGGRESSIVE=false
             shift
             ;;
         --help|-h)
-            echo "cleanmac v1.1.0 — macOS developer cache cleanup"
+            echo "cleanmac v1.2.0 — macOS developer cache cleanup"
             echo ""
             echo "Usage: cleanmac [OPTIONS]"
             echo ""
             echo "Modes:"
             echo "  (default)          Standard — developer caches only (uv, pip, npm, bun, brew, xcode, cargo, docker)"
             echo "  --aggressive, -a   Deep clean — app caches, logs, orphaned data, old installers, code signing clones"
+            echo "  --cache, -c        Clean ~/.cache/ directory (puppeteer, playwright, codex, whisper, etc.)"
+            echo "  --ai               Clean AI/ML model caches (huggingface, ollama, torch, conda, etc.)"
             echo "  --standard, -s     Explicit standard mode (same as default)"
             echo ""
             echo "Options:"
@@ -62,7 +74,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --help, -h        Show this help message"
             echo ""
             echo "Standard targets: uv, pip, npm, bun, brew, xcode, cargo, docker"
-            echo "Aggressive targets: apps, logs, orphaned, downloads, code-signing"
+            echo "Aggressive targets: apps, logs, orphaned, downloads, code-signing, simulators, xcode-archives, gradle, pip-cache"
+            echo "Cache targets: puppeteer, playwright, codex, whisper, chroma, prisma, go-build, electron, pnpm"
+            echo "AI targets: huggingface, ollama, torch, conda, pyenv"
             echo ""
             echo "Environment variables:"
             echo "  CARGO_HOME         (default: ~/.cargo)"
@@ -556,6 +570,247 @@ if [[ "$AGGRESSIVE" == true ]] && is_enabled "code-signing"; then
         fi
         TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
     done < <(find /private/var/folders -maxdepth 4 -type d -name "*.code_sign_clone" 2>/dev/null || true)
+fi
+
+# --- 14. Clean Xcode archives ---
+if [[ "$AGGRESSIVE" == true ]] && is_enabled "xcode-archives"; then
+    archives_dir="$HOME/Library/Developer/Xcode/Archives"
+    if [[ -d "$archives_dir" ]]; then
+        size_bytes=$(get_size_bytes "$archives_dir")
+        size_human=$(get_size "$archives_dir")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("xcode-archives  $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[xcode-archives]${NC} Cleaning Xcode archives (was $size_human)..."
+            fi
+            safe_rm "$archives_dir" "Xcode Archives ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+fi
+
+# --- 15. Clean iOS/watchOS device support ---
+if [[ "$AGGRESSIVE" == true ]] && is_enabled "simulators"; then
+    if [[ "$SILENT" == false ]]; then
+        echo -e "${GREEN}[simulators]${NC} Cleaning simulator and device support data..."
+    fi
+
+    # CoreSimulator
+    simulator_dir="$HOME/Library/Developer/CoreSimulator"
+    if [[ -d "$simulator_dir" ]]; then
+        size_bytes=$(get_size_bytes "$simulator_dir")
+        size_human=$(get_size "$simulator_dir")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("simulators:CoreSimulator  $size_human (dry run)")
+        else
+            safe_rm "$simulator_dir" "CoreSimulator ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+
+    # iOS DeviceSupport
+    device_support_dir="$HOME/Library/Developer/Xcode/iOS DeviceSupport"
+    if [[ -d "$device_support_dir" ]]; then
+        size_bytes=$(get_size_bytes "$device_support_dir")
+        size_human=$(get_size "$device_support_dir")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("simulators:iOS-DeviceSupport  $size_human (dry run)")
+        else
+            safe_rm "$device_support_dir" "iOS DeviceSupport ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+fi
+
+# --- 16. Clean Gradle cache ---
+if [[ "$AGGRESSIVE" == true ]] && is_enabled "gradle"; then
+    gradle_cache="$HOME/.gradle/caches"
+    if [[ -d "$gradle_cache" ]]; then
+        size_bytes=$(get_size_bytes "$gradle_cache")
+        size_human=$(get_size "$gradle_cache")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("gradle  $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[gradle]${NC} Cleaning Gradle cache (was $size_human)..."
+            fi
+            safe_rm "$gradle_cache" "Gradle caches ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+fi
+
+# --- 17. Clean pip cache (modern location) ---
+if [[ "$AGGRESSIVE" == true ]] && is_enabled "pip-cache"; then
+    pip_cache_modern="$HOME/.cache/pip"
+    if [[ -d "$pip_cache_modern" ]]; then
+        size_bytes=$(get_size_bytes "$pip_cache_modern")
+        size_human=$(get_size "$pip_cache_modern")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("pip-cache  $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[pip-cache]${NC} Cleaning pip cache (~/.cache/pip, was $size_human)..."
+            fi
+            safe_rm "$pip_cache_modern" "pip cache (~/.cache/pip, $size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+fi
+
+# --- CACHE MODE TARGETS ---
+
+# --- 18. Clean ~/.cache/ directory ---
+if [[ "$CACHE" == true ]] && is_enabled "cache"; then
+    if [[ "$SILENT" == false ]]; then
+        echo -e "${GREEN}[cache]${NC} Cleaning ~/.cache/ directory..."
+    fi
+
+    # Directories to clean in ~/.cache/
+    CACHE_DIRS=(
+        "puppeteer"
+        "codex-runtimes"
+        "chroma"
+        "whisper-models"
+        "openwhispr"
+        "time-globe"
+        "prisma"
+        "fontconfig"
+        "node"
+        "opencode"
+        "codebase-memory-mcp"
+        "outlines"
+        "vscode-ripgrep"
+        "gh"
+        "chrome-devtools-mcp"
+        "claude"
+        "antigravity"
+    )
+
+    for cache_dir_name in "${CACHE_DIRS[@]}"; do
+        target="$HOME/.cache/$cache_dir_name"
+        if [[ -d "$target" ]]; then
+            size_bytes=$(get_size_bytes "$target")
+            size_human=$(get_size "$target")
+
+            if [[ "$DRY_RUN" == true ]]; then
+                SAVINGS_LINES+=("cache:$cache_dir_name  $size_human (dry run)")
+            else
+                safe_rm "$target" "~/.cache/$cache_dir_name ($size_human)"
+            fi
+            TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+        fi
+    done
+
+    # Also clean go-build cache
+    go_build_cache="$HOME/.cache/go-build"
+    if [[ -d "$go_build_cache" ]]; then
+        size_bytes=$(get_size_bytes "$go_build_cache")
+        size_human=$(get_size "$go_build_cache")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("cache:go-build  $size_human (dry run)")
+        else
+            if command -v go &> /dev/null; then
+                go clean -cache &>/dev/null
+                echo -e "  ${GREEN}[deleted]${NC} ~/.cache/go-build ($size_human)"
+            else
+                safe_rm "$go_build_cache" "~/.cache/go-build ($size_human)"
+            fi
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+fi
+
+# --- AI MODE TARGETS ---
+
+# --- 19. Clean AI/ML model caches ---
+if [[ "$AI" == true ]] && is_enabled "ai"; then
+    if [[ "$SILENT" == false ]]; then
+        echo -e "${GREEN}[ai]${NC} Cleaning AI/ML model caches..."
+    fi
+
+    # HuggingFace models cache
+    hf_cache="$HOME/.cache/huggingface/hub"
+    if [[ -d "$hf_cache" ]]; then
+        size_bytes=$(get_size_bytes "$hf_cache")
+        size_human=$(get_size "$hf_cache")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("ai:huggingface  $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[ai]${NC} Cleaning HuggingFace model cache (was $size_human)..."
+            fi
+            safe_rm "$hf_cache" "HuggingFace model cache ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+
+    # Ollama models
+    ollama_dir="$HOME/.ollama/models"
+    if [[ -d "$ollama_dir" ]]; then
+        size_bytes=$(get_size_bytes "$ollama_dir")
+        size_human=$(get_size "$ollama_dir")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("ai:ollama  $size_human (dry run)")
+        else
+            if [[ "$SILENT" == false ]]; then
+                echo -e "${GREEN}[ai]${NC} Cleaning Ollama models (was $size_human)..."
+            fi
+            safe_rm "$ollama_dir" "Ollama models ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+
+    # PyTorch hub cache
+    torch_cache="$HOME/.cache/torch"
+    if [[ -d "$torch_cache" ]]; then
+        size_bytes=$(get_size_bytes "$torch_cache")
+        size_human=$(get_size "$torch_cache")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("ai:torch  $size_human (dry run)")
+        else
+            safe_rm "$torch_cache" "PyTorch hub cache ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+
+    # Conda packages
+    conda_cache="$HOME/.conda/pkgs"
+    if [[ -d "$conda_cache" ]]; then
+        size_bytes=$(get_size_bytes "$conda_cache")
+        size_human=$(get_size "$conda_cache")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("ai:conda  $size_human (dry run)")
+        else
+            safe_rm "$conda_cache" "Conda package cache ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
+
+    # Keras models
+    keras_dir="$HOME/.keras"
+    if [[ -d "$keras_dir" ]]; then
+        size_bytes=$(get_size_bytes "$keras_dir")
+        size_human=$(get_size "$keras_dir")
+
+        if [[ "$DRY_RUN" == true ]]; then
+            SAVINGS_LINES+=("ai:keras  $size_human (dry run)")
+        else
+            safe_rm "$keras_dir" "Keras models ($size_human)"
+        fi
+        TOTAL_SAVED_KB=$((TOTAL_SAVED_KB + size_bytes))
+    fi
 fi
 
 # --- Print savings summary ---
