@@ -21,7 +21,7 @@ A simple, zero-dependency bash script to clean up developer caches, logs, and bu
 - **downloads** — DMG/ZIP/PKG installers older than 30 days in Downloads
 - **code-signing** — Orphaned code signing clone directories
 - **xcode-archives** — Xcode archives in `~/Library/Developer/Xcode/Archives`
-- **simulators** — iOS simulators and device support data
+- **simulators** — iOS simulators and device support data (`~/Library/Developer/CoreSimulator`, `~/Library/Developer/Xcode/iOS DeviceSupport`)
 - **gradle** — Gradle build cache (`~/.gradle/caches`)
 - **pip-cache** — Modern pip cache (`~/.cache/pip`)
 
@@ -31,7 +31,7 @@ A simple, zero-dependency bash script to clean up developer caches, logs, and bu
 - **chroma** — ChromaDB vector database cache
 - **whisper-models** — Whisper speech recognition models
 - **prisma** — Prisma schema cache
-- **go-build** — Go build cache
+- **go-build** — Go build cache (cleaned via `go clean -cache`)
 - **electron** — Electron runtime cache
 - **pnpm** — pnpm package manager cache
 - And more (fontconfig, node, opencode, gh, etc.)
@@ -42,10 +42,11 @@ A simple, zero-dependency bash script to clean up developer caches, logs, and bu
 - **torch** — PyTorch hub cache
 - **conda** — Conda package cache
 - **keras** — Keras model cache
+- **pyenv** — pyenv build cache
 
 ## Safety features
 
-- **Dry run by default awareness** — Use `--dry-run` to preview before deleting
+- **Dry run mode** — Use `--dry-run` to preview before deleting
 - **Browser data protection** — Never touches Chrome, Firefox, or Brave profile data (bookmarks, passwords, history)
 - **System file protection** — Skips `com.apple.*`, `CloudKit`, and other system caches
 - **Installed app protection** — Orphaned data detection skips reverse-domain named folders (com.*, org.*, etc.) and verifies against `/Applications/`
@@ -99,15 +100,16 @@ cleanmac --help             # Show all options
 | `--aggressive`, `-a` | Include app caches, logs, orphaned app data, old installers, code signing clones, simulators, xcode-archives, gradle, pip-cache |
 | `--cache`, `-c` | Clean `~/.cache/` directory (puppeteer, playwright, codex, whisper, chroma, prisma, go-build, electron, etc.) |
 | `--ai` | Clean AI/ML model caches (huggingface, ollama, torch, conda, keras) |
+| `--standard`, `-s` | Explicit standard mode (same as default) |
 | `--help`, `-h` | Show help message |
 
 Available targets (standard): `uv`, `pip`, `npm`, `bun`, `brew`, `xcode`, `cargo`, `docker`
 
-Available targets (aggressive): `apps`, `logs`, `orphaned`, `downloads`, `code-signing`, `xcode-archives`, `simulators`, `gradle`, `pip-cache`
+Available targets (aggressive): `apps`, `logs`, `orphaned`, `downloads`, `code-signing`, `simulators`, `xcode-archives`, `gradle`, `pip-cache`
 
-Available targets (cache): `cache`
+Available targets (cache): `puppeteer`, `playwright`, `codex`, `whisper`, `chroma`, `prisma`, `go-build`, `electron`, `pnpm`
 
-Available targets (ai): `ai`
+Available targets (ai): `huggingface`, `ollama`, `torch`, `conda`, `pyenv`
 
 ## Space Savings Summary
 
@@ -133,6 +135,7 @@ cleanmac respects standard environment variables for custom tool locations:
 |----------|---------|---------|
 | `CARGO_HOME` | `~/.cargo` | Cargo |
 | `NPM_CONFIG_CACHE` | `~/.npm` | npm |
+| `DOCKER_CONFIG` | `~/.docker` | Docker |
 
 ## Automation
 
@@ -144,6 +147,12 @@ Drop it in a cron job or launch agent with `--silent`:
 
 # Monthly deep clean
 0 2 1 * * /usr/local/bin/cleanmac --silent --aggressive
+
+# Monthly AI/ML cache cleanup
+0 3 1 * * /usr/local/bin/cleanmac --silent --ai
+
+# Weekly ~/.cache/ cleanup
+0 4 * * 0 /usr/local/bin/cleanmac --silent --cache
 ```
 
 ## Requirements
