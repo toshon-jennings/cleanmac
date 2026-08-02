@@ -20,6 +20,28 @@ A simple, zero-dependency bash script to clean up developer caches, logs, and bu
 - **orphaned** — Data for uninstalled apps (Docker Desktop leftovers, app data without matching installed app)
 - **downloads** — DMG/ZIP/PKG installers older than 30 days in Downloads
 - **code-signing** — Orphaned code signing clone directories
+- **xcode-archives** — Xcode archives in `~/Library/Developer/Xcode/Archives`
+- **simulators** — iOS simulators and device support data
+- **gradle** — Gradle build cache (`~/.gradle/caches`)
+- **pip-cache** — Modern pip cache (`~/.cache/pip`)
+
+### Cache mode (`--cache`)
+- **puppeteer** — Headless Chrome binaries
+- **codex-runtimes** — OpenAI Codex runtimes
+- **chroma** — ChromaDB vector database cache
+- **whisper-models** — Whisper speech recognition models
+- **prisma** — Prisma schema cache
+- **go-build** — Go build cache
+- **electron** — Electron runtime cache
+- **pnpm** — pnpm package manager cache
+- And more (fontconfig, node, opencode, gh, etc.)
+
+### AI mode (`--ai`)
+- **huggingface** — HuggingFace model cache (`~/.cache/huggingface/hub`)
+- **ollama** — Ollama local LLM models
+- **torch** — PyTorch hub cache
+- **conda** — Conda package cache
+- **keras** — Keras model cache
 
 ## Safety features
 
@@ -39,6 +61,12 @@ brew tap toshon-jennings/tap
 brew install cleanmac
 ```
 
+To upgrade to the latest version:
+
+```bash
+brew upgrade cleanmac
+```
+
 ### Direct download
 
 ```bash
@@ -51,6 +79,8 @@ chmod +x /usr/local/bin/cleanmac
 ```bash
 cleanmac                    # Clean developer caches (safe)
 cleanmac --aggressive       # Deep clean (app caches, logs, orphaned data)
+cleanmac --cache            # Clean ~/.cache/ directory (puppeteer, playwright, codex, etc.)
+cleanmac --ai               # Clean AI/ML model caches (huggingface, ollama, torch, etc.)
 cleanmac --dry-run --aggressive  # Preview what aggressive mode would delete
 cleanmac --only npm,docker  # Clean only specific targets
 cleanmac --skip xcode       # Clean everything except Xcode
@@ -66,12 +96,18 @@ cleanmac --help             # Show all options
 | `--silent`, `-y` | Suppress verbose output (cron-friendly) |
 | `--only <targets>` | Comma-separated list of targets to clean (e.g., `docker,npm`) |
 | `--skip <targets>` | Comma-separated list of targets to skip (e.g., `xcode,cargo`) |
-| `--aggressive`, `-a` | Include app caches, logs, orphaned app data, old installers, and code signing clones |
+| `--aggressive`, `-a` | Include app caches, logs, orphaned app data, old installers, code signing clones, simulators, xcode-archives, gradle, pip-cache |
+| `--cache`, `-c` | Clean `~/.cache/` directory (puppeteer, playwright, codex, whisper, chroma, prisma, go-build, electron, etc.) |
+| `--ai` | Clean AI/ML model caches (huggingface, ollama, torch, conda, keras) |
 | `--help`, `-h` | Show help message |
 
 Available targets (standard): `uv`, `pip`, `npm`, `bun`, `brew`, `xcode`, `cargo`, `docker`
 
-Available targets (aggressive): `apps`, `logs`, `orphaned`, `downloads`, `code-signing`
+Available targets (aggressive): `apps`, `logs`, `orphaned`, `downloads`, `code-signing`, `xcode-archives`, `simulators`, `gradle`, `pip-cache`
+
+Available targets (cache): `cache`
+
+Available targets (ai): `ai`
 
 ## Space Savings Summary
 
