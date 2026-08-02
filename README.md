@@ -78,15 +78,15 @@ chmod +x /usr/local/bin/cleanmac
 ## Usage
 
 ```bash
-cleanmac                    # Clean developer caches (safe)
-cleanmac --aggressive       # Deep clean (app caches, logs, orphaned data)
-cleanmac --cache            # Clean ~/.cache/ directory (puppeteer, playwright, codex, etc.)
-cleanmac --ai               # Clean AI/ML model caches (huggingface, ollama, torch, etc.)
+cleanmac                         # Clean developer caches (safe)
+cleanmac --aggressive            # Deep clean (app caches, logs, orphaned data)
+cleanmac --cache                 # Clean ~/.cache/ directory (puppeteer, playwright, codex, etc.)
+cleanmac --ai                    # Clean AI/ML model caches (huggingface, ollama, torch, etc.)
 cleanmac --dry-run --aggressive  # Preview what aggressive mode would delete
-cleanmac --only npm,docker  # Clean only specific targets
-cleanmac --skip xcode       # Clean everything except Xcode
-cleanmac --silent           # Suppress output (for cron/scripts)
-cleanmac --help             # Show all options
+cleanmac --only npm,docker       # Clean only specific targets
+cleanmac --skip xcode            # Clean everything except Xcode
+cleanmac --silent                # Suppress output (for cron/scripts)
+cleanmac --help                  # Show all options
 ```
 
 ## Options
