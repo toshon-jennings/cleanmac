@@ -1,5 +1,9 @@
 # CleanMac
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/toshon-jennings/cleanmac/main/og-image.png" alt="cleanmac disk space cleaner" width="900">
+</p>
+
 A simple, zero-dependency bash script to clean up developer caches, logs, and build artifacts on macOS.
 
 ## What it cleans
